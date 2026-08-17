@@ -18,11 +18,46 @@ class DocumentProcessor:
             response.raise_for_status()
             return response.content
 
+    @staticmethod
+    def merge_ocr_header_if_missing(native_text: str, ocr_text: str) -> str:
+        """
+        Merges graphical headers (like candidate name/title in Canva/Figma PDFs) captured by 300 DPI OCR
+        into PyMuPDF native text if native text missed the top header lines.
+        """
+        if not ocr_text or not ocr_text.strip():
+            return native_text
+        if not native_text or not native_text.strip():
+            return ocr_text
+
+        native_lines = [l.strip() for l in native_text.splitlines() if l.strip()]
+        ocr_lines = [l.strip() for l in ocr_text.splitlines() if l.strip()]
+
+        if not native_lines:
+            return ocr_text
+        if not ocr_lines:
+            return native_text
+
+        first_native_line = native_lines[0].lower()
+        match_idx = -1
+
+        for idx, line in enumerate(ocr_lines):
+            l_lower = line.lower()
+            if first_native_line in l_lower or l_lower in first_native_line or (len(first_native_line) > 10 and l_lower[:15] in first_native_line[:15]):
+                match_idx = idx
+                break
+
+        if match_idx > 0:
+            missing_header_lines = ocr_lines[:match_idx]
+            header_prefix = "\n".join(missing_header_lines)
+            return header_prefix + "\n\n" + native_text
+
+        return native_text
+
     @classmethod
     async def process_document(cls, request: ExtractionRequest, file_bytes: bytes = None) -> ParsedDocument:
         """
         Executes complete Tiered Processing Flow:
-        PyMuPDF Native -> Quality Assessor -> OCR Fallback (@ 300 DPI) -> ParsedDocument Output
+        PyMuPDF Native -> Quality Assessor -> OCR Fallback (@ 300 DPI) -> Hybrid Header Merger -> ParsedDocument Output
         """
         if not file_bytes and request.fileUrl:
             file_bytes = await cls.download_file(request.fileUrl)
@@ -32,7 +67,7 @@ class DocumentProcessor:
 
         doc = fitz.open(stream=file_bytes, filetype="pdf")
         page_count = len(doc)
-        print(f"📄 [Cloud Run Extractor] Processing docId='{request.documentId}' | Name='{request.fileName or 'document.pdf'}' | Total Pages={page_count} | Size={len(file_bytes)} bytes")
+        print(f"[Cloud Run Extractor] Processing docId='{request.documentId}' | Name='{request.fileName or 'document.pdf'}' | Total Pages={page_count} | Size={len(file_bytes)} bytes")
 
         pages: List[DocumentPage] = []
         full_text_chunks: List[str] = []
@@ -50,20 +85,29 @@ class DocumentProcessor:
             chosen_blocks = native_blocks
             method = "native_pymupdf"
 
-            print(f"  ├─ [Page #{page_idx + 1}/{page_count}] PyMuPDF Native: {len(native_text.split())} words, {len(native_text)} chars | Quality Score = {quality_score:.2f}")
+            print(f"  * [Page #{page_idx + 1}/{page_count}] PyMuPDF Native: {len(native_text.split())} words, {len(native_text)} chars | Quality Score = {quality_score:.2f}")
 
-            # Step 2: Fallback to High-Res OCR (@ 300 DPI) if Quality Score < 0.60
-            if quality_score < 0.60 or request.options.get("forceOcr", False):
-                print(f"  │  ⚡ [Page #{page_idx + 1}] Quality Score ({quality_score:.2f}) < 0.60 -> Triggering 300 DPI OCR Engine...")
+            # Step 2: On Page 1 or low quality, run 300 DPI OCR to check for missing graphical headers (Canva/Figma PDFs)
+            is_page_1 = (page_idx == 0)
+            if quality_score < 0.60 or is_page_1 or request.options.get("forceOcr", False):
+                print(f"    -> [Page #{page_idx + 1}] Running 300 DPI OCR Engine to check graphical headers...")
                 ocr_text, ocr_blocks = OCRExtractor.extract_page_ocr(doc, page_idx, dpi=300)
                 ocr_quality = QualityAssessor.assess_page_quality(ocr_text)
 
-                if ocr_text and (ocr_quality > quality_score or len(ocr_text) > len(native_text)):
-                    chosen_text = ocr_text
-                    chosen_blocks = ocr_blocks if ocr_blocks else native_blocks
-                    quality_score = ocr_quality
-                    method = "ocr_tesseract_300dpi"
-                    print(f"  │  ✅ [Page #{page_idx + 1}] OCR Successful! {len(ocr_text.split())} words | New Quality Score = {quality_score:.2f}")
+                if ocr_text:
+                    if quality_score < 0.60:
+                        chosen_text = ocr_text
+                        chosen_blocks = ocr_blocks if ocr_blocks else native_blocks
+                        quality_score = ocr_quality
+                        method = "ocr_tesseract_300dpi"
+                        print(f"    [OK] [Page #{page_idx + 1}] OCR Fallback Selected! {len(ocr_text.split())} words | Quality Score = {quality_score:.2f}")
+                    else:
+                        # Check if OCR captured missing top header lines
+                        merged_text = cls.merge_ocr_header_if_missing(native_text, ocr_text)
+                        if len(merged_text) > len(native_text):
+                            chosen_text = merged_text
+                            method = "hybrid_pymupdf_ocr"
+                            print(f"    [HYBRID] [Page #{page_idx + 1}] Hybrid Merge Success! Prepend OCR top header lines to native text. Total: {len(chosen_text.split())} words")
 
             methods_used[method] = methods_used.get(method, 0) + 1
             full_text_chunks.append(chosen_text)
@@ -72,7 +116,7 @@ class DocumentProcessor:
             total_words += words
             total_chars += len(chosen_text)
 
-            print(f"  📝 [PAGE #{page_idx + 1} EXTRACTED TEXT CONTENT]:\n{'='*70}\n{chosen_text}\n{'='*70}")
+            print(f"  [PAGE #{page_idx + 1} EXTRACTED TEXT CONTENT]:\n{'='*70}\n{chosen_text}\n{'='*70}")
 
             pages.append(DocumentPage(
                 pageNumber=page_idx + 1,
@@ -83,7 +127,7 @@ class DocumentProcessor:
             ))
 
         doc.close()
-        print(f"✅ [Cloud Run Extractor Complete] Extracted {total_words} words ({total_chars} chars) across {page_count} pages. Methods: {methods_used}")
+        print(f"[OK] [Cloud Run Extractor Complete] Extracted {total_words} words ({total_chars} chars) across {page_count} pages. Methods: {methods_used}")
 
         full_document_text = "\n\n".join(full_text_chunks).strip()
 
