@@ -72,6 +72,8 @@ class DocumentProcessor:
             total_words += words
             total_chars += len(chosen_text)
 
+            print(f"  📝 [PAGE #{page_idx + 1} EXTRACTED TEXT CONTENT]:\n{'='*70}\n{chosen_text}\n{'='*70}")
+
             pages.append(DocumentPage(
                 pageNumber=page_idx + 1,
                 text=chosen_text,
