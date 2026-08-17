@@ -47,6 +47,11 @@ class QualityAssessor:
         if obscure >= 5:
             return 0.25
 
+        # 6. Check for embedded question mark font corruption in Vietnamese words (e.g. C?ng, vi?c, ng??i, NGUY?N, T?C)
+        corrupted_words = re.findall(r'\b[A-Za-z0-9\u00C0-\u1EF9]*\?[A-Za-z0-9\u00C0-\u1EF9]*\b', sample)
+        if len(corrupted_words) >= 3 or (len(corrupted_words) / total_tokens) > 0.05:
+            return 0.20
+
         # High quality natural language text
         word_count_bonus = min(0.30, len(real_words) * 0.01)
         score = min(1.00, 0.70 + word_count_bonus - (single_ratio * 0.5))
