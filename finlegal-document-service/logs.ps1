@@ -1,6 +1,6 @@
-# Tail live Google Cloud Run logs in real-time
+# Read recent Google Cloud Run logs
 $PROJECT_ID = "learnenglish-462703"
 $SERVICE_NAME = "finlegal-document-service"
 
-Write-Host "📜 Tailing live logs for Google Cloud Run service '$SERVICE_NAME'..." -ForegroundColor Cyan
-gcloud run services logs tail $SERVICE_NAME --project $PROJECT_ID
+Write-Host "Reading recent logs for Google Cloud Run service finlegal-document-service..." -ForegroundColor Cyan
+gcloud run services logs read finlegal-document-service --project learnenglish-462703 --limit 50

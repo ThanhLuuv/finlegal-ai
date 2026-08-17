@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tail live Google Cloud Run logs in real-time
+# Read recent Google Cloud Run logs
 PROJECT_ID="learnenglish-462703"
 SERVICE_NAME="finlegal-document-service"
 
-echo "📜 Tailing live logs for Google Cloud Run service '${SERVICE_NAME}'..."
-gcloud run services logs tail "${SERVICE_NAME}" --project "${PROJECT_ID}"
+echo "Reading recent logs for Google Cloud Run service '${SERVICE_NAME}'..."
+gcloud run services logs read "${SERVICE_NAME}" --project "${PROJECT_ID}" --limit 50
