@@ -1,8 +1,9 @@
 # Ignore all files and folders in root directory
 /*
 
-# Whitelist ONLY backend and frontend submodules, gitmodules, and gitignore
+# Whitelist ONLY backend, frontend, document service submodules, gitmodules, and gitignore
 !/finlegal-ai-be
 !/finlegal-ai-fe
+!/finlegal-document-service
 !/.gitmodules
 !/.gitignore
