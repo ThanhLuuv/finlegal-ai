@@ -1,0 +1,6 @@
+[submodule "finlegal-ai-be"]
+	path = finlegal-ai-be
+	url = https://github.com/ThanhLuuv/finlegal-ai-be
+[submodule "finlegal-ai-fe"]
+	path = finlegal-ai-fe
+	url = https://github.com/ThanhLuuv/finlegal-ai-fe
