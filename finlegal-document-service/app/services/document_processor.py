@@ -29,27 +29,27 @@ class DocumentProcessor:
         if not native_text or not native_text.strip():
             return ocr_text
 
-        native_lines = [l.strip() for l in native_text.splitlines() if l.strip()]
-        ocr_lines = [l.strip() for l in ocr_text.splitlines() if l.strip()]
-
-        if not native_lines:
-            return ocr_text
-        if not ocr_lines:
+        import re
+        words = [w.strip() for w in re.split(r'[\s\n\r,.;:]+', native_text) if len(w.strip()) >= 3]
+        if not words:
             return native_text
 
-        first_native_line = native_lines[0].lower()
-        match_idx = -1
+        ocr_lower = ocr_text.lower()
+        pos = -1
 
-        for idx, line in enumerate(ocr_lines):
-            l_lower = line.lower()
-            if first_native_line in l_lower or l_lower in first_native_line or (len(first_native_line) > 10 and l_lower[:15] in first_native_line[:15]):
-                match_idx = idx
+        for word in words[:5]:
+            w_lower = word.lower()
+            idx = ocr_lower.find(w_lower)
+            if idx != -1:
+                pos = idx
                 break
 
-        if match_idx > 0:
-            missing_header_lines = ocr_lines[:match_idx]
-            header_prefix = "\n".join(missing_header_lines)
-            return header_prefix + "\n\n" + native_text
+        if pos > 10:
+            header_lines = ocr_text[:pos].strip().splitlines()
+            valid_header_lines = [l.strip() for l in header_lines if l.strip()]
+            if valid_header_lines:
+                header_prefix = "\n".join(valid_header_lines)
+                return header_prefix + "\n\n" + native_text
 
         return native_text
 
