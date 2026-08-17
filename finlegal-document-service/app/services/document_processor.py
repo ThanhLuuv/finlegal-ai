@@ -31,6 +31,9 @@ class DocumentProcessor:
             raise ValueError("Không thể tải file nhị phân (fileUrl hoặc file_bytes trống).")
 
         doc = fitz.open(stream=file_bytes, filetype="pdf")
+        page_count = len(doc)
+        print(f"📄 [Cloud Run Extractor] Processing docId='{request.documentId}' | Name='{request.fileName or 'document.pdf'}' | Total Pages={page_count} | Size={len(file_bytes)} bytes")
+
         pages: List[DocumentPage] = []
         full_text_chunks: List[str] = []
 
@@ -38,7 +41,7 @@ class DocumentProcessor:
         total_chars = 0
         methods_used: Dict[str, int] = {}
 
-        for page_idx in range(len(doc)):
+        for page_idx in range(page_count):
             # Step 1: Try PyMuPDF Native Extraction
             native_text, native_blocks = PyMuPDFNativeExtractor.extract_page_native(doc, page_idx)
             quality_score = QualityAssessor.assess_page_quality(native_text)
@@ -47,9 +50,11 @@ class DocumentProcessor:
             chosen_blocks = native_blocks
             method = "native_pymupdf"
 
+            print(f"  ├─ [Page #{page_idx + 1}/{page_count}] PyMuPDF Native: {len(native_text.split())} words, {len(native_text)} chars | Quality Score = {quality_score:.2f}")
+
             # Step 2: Fallback to High-Res OCR (@ 300 DPI) if Quality Score < 0.60
             if quality_score < 0.60 or request.options.get("forceOcr", False):
-                print(f"[Page #{page_idx + 1}] Low quality score ({quality_score:.2f}). Triggering OCR @ 300 DPI...")
+                print(f"  │  ⚡ [Page #{page_idx + 1}] Quality Score ({quality_score:.2f}) < 0.60 -> Triggering 300 DPI OCR Engine...")
                 ocr_text, ocr_blocks = OCRExtractor.extract_page_ocr(doc, page_idx, dpi=300)
                 ocr_quality = QualityAssessor.assess_page_quality(ocr_text)
 
@@ -58,6 +63,7 @@ class DocumentProcessor:
                     chosen_blocks = ocr_blocks if ocr_blocks else native_blocks
                     quality_score = ocr_quality
                     method = "ocr_tesseract_300dpi"
+                    print(f"  │  ✅ [Page #{page_idx + 1}] OCR Successful! {len(ocr_text.split())} words | New Quality Score = {quality_score:.2f}")
 
             methods_used[method] = methods_used.get(method, 0) + 1
             full_text_chunks.append(chosen_text)
@@ -75,6 +81,7 @@ class DocumentProcessor:
             ))
 
         doc.close()
+        print(f"✅ [Cloud Run Extractor Complete] Extracted {total_words} words ({total_chars} chars) across {page_count} pages. Methods: {methods_used}")
 
         full_document_text = "\n\n".join(full_text_chunks).strip()
 
